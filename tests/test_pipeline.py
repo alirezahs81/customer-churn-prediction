@@ -2,8 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.model_selection import train_test_split
+
 from src.pipeline import TARGET, build_estimators, build_pipeline, load_dataset
-from src.train import train
+from src.train import stratified_train_valid_test_split, train
 
 
 def make_dataset(n=160):
@@ -74,3 +75,10 @@ def test_total_charges_blank_strings_are_coerced_to_missing(tmp_path):
     frame.to_csv(path, index=False)
     loaded = load_dataset(str(path))
     assert pd.isna(loaded.loc[0, "TotalCharges"])
+
+
+def test_stratified_split_rejects_too_few_minority_examples():
+    X = pd.DataFrame({"feature": range(20)})
+    y = pd.Series([0] * 16 + [1] * 4)
+    with pytest.raises(ValueError, match="at least 5 rows in each Churn class"):
+        stratified_train_valid_test_split(X, y)
