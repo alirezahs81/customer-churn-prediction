@@ -19,6 +19,7 @@ from sklearn.model_selection import train_test_split
 from src.pipeline import TARGET, build_estimators, build_pipeline, load_dataset
 
 ROOT = Path(__file__).resolve().parents[1]
+MIN_CLASS_COUNT_FOR_SPLIT = 5
 
 
 def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
@@ -31,16 +32,40 @@ def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
     }
 
 
+def stratified_train_valid_test_split(X, y, random_state: int = 42):
+    """Create a 60/20/20 split and fail clearly when either class is too rare."""
+    counts = y.value_counts()
+    if len(counts) != 2 or int(counts.min()) < MIN_CLASS_COUNT_FOR_SPLIT:
+        raise ValueError(
+            "A stratified 60/20/20 split requires at least "
+            f"{MIN_CLASS_COUNT_FOR_SPLIT} rows in each Churn class; "
+            f"observed counts: {counts.to_dict()}."
+        )
+
+    X_train_valid, X_test, y_train_valid, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=random_state,
+        stratify=y,
+    )
+    X_train, X_valid, y_train, y_valid = train_test_split(
+        X_train_valid,
+        y_train_valid,
+        test_size=0.25,
+        random_state=random_state,
+        stratify=y_train_valid,
+    )
+    return X_train, X_valid, X_test, y_train, y_valid, y_test
+
+
 def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
     data = load_dataset(str(dataset_path))
     X = data.drop(columns=[TARGET])
     y = data[TARGET].astype(int)
 
-    X_train, X_holdout, y_train, y_holdout = train_test_split(
-        X, y, test_size=0.40, random_state=42, stratify=y
-    )
-    X_valid, X_test, y_valid, y_test = train_test_split(
-        X_holdout, y_holdout, test_size=0.50, random_state=42, stratify=y_holdout
+    X_train, X_valid, X_test, y_train, y_valid, y_test = (
+        stratified_train_valid_test_split(X, y)
     )
 
     validation_results = {}
