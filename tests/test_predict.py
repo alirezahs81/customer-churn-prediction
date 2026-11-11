@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from src.predict import predict
 
 
@@ -8,6 +9,26 @@ def test_predict_requires_model(tmp_path):
     pd.DataFrame({"tenure": [10], "MonthlyCharges": [50.0]}).to_csv(path, index=False)
     with pytest.raises(FileNotFoundError, match="Train the model first"):
         predict(path, tmp_path / "missing.joblib")
+
+
+def test_predict_rejects_target_column_to_prevent_leakage(tmp_path):
+    path = tmp_path / "labeled_customers.csv"
+    pd.DataFrame({"tenure": [10], "Churn": [1]}).to_csv(path, index=False)
+    model_path = tmp_path / "trusted_model.joblib"
+    model_path.touch()
+
+    with pytest.raises(ValueError, match="must not contain target column"):
+        predict(path, model_path)
+
+
+def test_predict_rejects_empty_feature_frame(tmp_path):
+    path = tmp_path / "empty_features.csv"
+    pd.DataFrame(index=[0]).to_csv(path, index=False)
+    model_path = tmp_path / "trusted_model.joblib"
+    model_path.touch()
+
+    with pytest.raises(ValueError, match="At least one feature column"):
+        predict(path, model_path)
 
 
 def test_predict_scores_customer_with_trained_pipeline(tmp_path):
