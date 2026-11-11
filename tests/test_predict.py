@@ -23,7 +23,7 @@ def test_predict_rejects_target_column_to_prevent_leakage(tmp_path):
 
 def test_predict_rejects_empty_feature_frame(tmp_path):
     path = tmp_path / "empty_features.csv"
-    pd.DataFrame(index=[0]).to_csv(path, index=False)
+    pd.DataFrame({"customerID": ["C-001"]}).to_csv(path, index=False)
     model_path = tmp_path / "trusted_model.joblib"
     model_path.touch()
 
