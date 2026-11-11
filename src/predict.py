@@ -19,7 +19,10 @@ def predict(input_csv: Path, model_path: Path) -> pd.DataFrame:
         )
     customers = pd.read_csv(input_csv)
     if TARGET in customers.columns:
-        customers = customers.drop(columns=[TARGET])
+        raise ValueError(
+            f"Prediction input must not contain target column {TARGET!r}; "
+            "remove labels before scoring to prevent target leakage."
+        )
     customers = prepare_features(customers)
     validate_feature_frame(customers)
 
