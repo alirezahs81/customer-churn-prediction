@@ -67,6 +67,9 @@ def predict(
             f"Prediction input must not contain target column {TARGET!r}; "
             "remove labels before scoring to prevent target leakage."
         )
+    if len(customers.index) == 0:
+        raise ValueError("Prediction input must contain at least one customer row.")
+
     customers = prepare_features(customers)
     validate_feature_frame(customers)
 
