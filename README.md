@@ -8,6 +8,7 @@ A reproducible machine-learning project for customer churn classification.
 - Data is split into stratified train, validation, and test partitions.
 - Validation F1 is used for model selection, and the decision threshold is tuned on validation predictions only; the test set is held out for final evaluation.
 - The evaluation report compares the selected validation threshold with the default 0.5 threshold on the untouched test set.
+- Training saves the selected threshold beside the model, and inference applies it automatically (legacy model files without a threshold use 0.5).
 - Baseline models: Logistic Regression, Random Forest, and Gradient Boosting.
 - Automated tests use synthetic data and do not require private customer records.
 
@@ -37,6 +38,8 @@ The project uses the IBM Telco Customer Churn sample dataset. Download the sourc
 python -m src.download_data
 python -m src.eda
 python -m src.train
+# Score a customer CSV with the trained pipeline and saved threshold:
+python -m src.predict --input path/to/customers.csv
 ```
 
 See [DATASET.md](DATASET.md) for source, attribution, checksum, license information, and limitations. Raw data and generated artifacts are not committed to the repository.
