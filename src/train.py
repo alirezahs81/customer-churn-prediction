@@ -6,10 +6,12 @@ import json
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -20,6 +22,7 @@ from src.pipeline import TARGET, build_estimators, build_pipeline, load_dataset
 
 ROOT = Path(__file__).resolve().parents[1]
 MIN_CLASS_COUNT_FOR_SPLIT = 5
+DEFAULT_THRESHOLD = 0.5
 
 
 def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
@@ -30,6 +33,26 @@ def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "roc_auc": float(roc_auc_score(y_true, y_probability)),
     }
+
+
+def select_threshold(y_true, y_probability) -> tuple[float, dict[str, float]]:
+    """Choose the F1-maximizing threshold using validation predictions only."""
+    _, _, thresholds = precision_recall_curve(y_true, y_probability)
+    candidates = np.unique(np.append(thresholds, DEFAULT_THRESHOLD))
+    scored = []
+    for threshold in candidates:
+        prediction = (np.asarray(y_probability) >= threshold).astype(int)
+        score = f1_score(y_true, prediction, zero_division=0)
+        scored.append((float(threshold), float(score)))
+
+    best_f1 = max(score for _, score in scored)
+    # Deterministic tie-break: prefer a threshold closest to the conventional 0.5.
+    best_threshold = min(
+        (threshold for threshold, score in scored if np.isclose(score, best_f1)),
+        key=lambda threshold: abs(threshold - DEFAULT_THRESHOLD),
+    )
+    best_prediction = (np.asarray(y_probability) >= best_threshold).astype(int)
+    return best_threshold, classification_metrics(y_true, best_prediction, y_probability)
 
 
 def stratified_train_valid_test_split(X, y, random_state: int = 42):
@@ -69,40 +92,71 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
     )
 
     validation_results = {}
+    validation_probabilities = {}
     for name, estimator in build_estimators().items():
         model = build_pipeline(X_train, estimator)
         model.fit(X_train, y_train)
         probability = model.predict_proba(X_valid)[:, 1]
-        prediction = (probability >= 0.5).astype(int)
+        prediction = (probability >= DEFAULT_THRESHOLD).astype(int)
+        validation_probabilities[name] = probability
         validation_results[name] = classification_metrics(y_valid, prediction, probability)
 
     best_name = max(validation_results, key=lambda key: validation_results[key]["f1"])
-    # After selection, refit the chosen estimator on train + validation. Test remains untouched.
+    selected_threshold, tuned_validation_metrics = select_threshold(
+        y_valid, validation_probabilities[best_name]
+    )
+
+    # Refit only after model and threshold selection. The test set remains untouched.
     final_X = pd.concat([X_train, X_valid], axis=0)
     final_y = pd.concat([y_train, y_valid], axis=0)
     best_model = build_pipeline(final_X, build_estimators()[best_name])
     best_model.fit(final_X, final_y)
     test_probability = best_model.predict_proba(X_test)[:, 1]
-    test_prediction = (test_probability >= 0.5).astype(int)
+    test_prediction = (test_probability >= selected_threshold).astype(int)
     test_metrics = classification_metrics(y_test, test_prediction, test_probability)
+    test_default_prediction = (test_probability >= DEFAULT_THRESHOLD).astype(int)
+    test_default_metrics = classification_metrics(
+        y_test, test_default_prediction, test_probability
+    )
 
     model_dir = output_dir / "models"
     outputs_dir = output_dir / "outputs"
     model_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(best_model, model_dir / "churn_pipeline.joblib")
+    threshold_path = model_dir / "churn_threshold.json"
+    threshold_path.write_text(
+        json.dumps(
+            {
+                "threshold": selected_threshold,
+                "default_threshold": DEFAULT_THRESHOLD,
+                "selection": "validation F1",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     report = {
         "protocol": {
             "split": "stratified 60/20/20 train/validation/test",
             "random_state": 42,
-            "selection_metric": "validation F1 at threshold 0.5",
-            "test_usage": "used once for final evaluation after model selection",
-            "threshold": 0.5,
+            "selection_metric": "validation F1",
+            "threshold_selection": "F1-maximizing threshold selected on validation predictions",
+            "test_usage": "used once for final evaluation after model and threshold selection",
+            "default_threshold": DEFAULT_THRESHOLD,
+            "selected_threshold": selected_threshold,
         },
         "best_model": best_name,
+        # Backward-compatible keys retained for existing tests and consumers.
+        # validation_metrics uses threshold 0.5; test_metrics uses the selected
+        # validation threshold for the final, one-time test evaluation.
         "validation_metrics": validation_results,
         "test_metrics": test_metrics,
+        "validation_metrics_at_default_threshold": validation_results,
+        "validation_metrics_at_selected_threshold": tuned_validation_metrics,
+        "test_metrics_at_selected_threshold": test_metrics,
+        "test_metrics_at_default_threshold": test_default_metrics,
         "dataset_rows": int(len(data)),
         "positive_rate": float(y.mean()),
     }

@@ -55,6 +55,11 @@ def test_training_writes_report_and_pipeline_artifact(tmp_path):
     assert set(report["validation_metrics"]) == set(build_estimators())
     assert set(report["test_metrics"]) == {"accuracy", "precision", "recall", "f1", "roc_auc"}
     assert (tmp_path / "models" / "churn_pipeline.joblib").is_file()
+    threshold_path = tmp_path / "models" / "churn_threshold.json"
+    assert threshold_path.is_file()
+    import json
+    saved_threshold = json.loads(threshold_path.read_text(encoding="utf-8"))
+    assert saved_threshold["threshold"] == report["protocol"]["selected_threshold"]
     assert (tmp_path / "outputs" / "evaluation_report.json").is_file()
 
 

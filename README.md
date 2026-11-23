@@ -6,7 +6,9 @@ A reproducible machine-learning project for customer churn classification.
 
 - Preprocessing is implemented inside scikit-learn pipelines to prevent data leakage.
 - Data is split into stratified train, validation, and test partitions.
-- Validation F1 is used for model selection; the test set is held out for final evaluation.
+- Validation F1 is used for model selection, and the decision threshold is tuned on validation predictions only; the test set is held out for final evaluation.
+- The evaluation report compares the selected validation threshold with the default 0.5 threshold on the untouched test set.
+- Training saves the selected threshold beside the model, and inference applies it automatically (legacy model files without a threshold use 0.5).
 - Baseline models: Logistic Regression, Random Forest, and Gradient Boosting.
 - Automated tests use synthetic data and do not require private customer records.
 
@@ -28,16 +30,26 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-## Dataset
+## Download data and train
 
-Place an authorized customer churn CSV at the path documented in [DATASET.md](DATASET.md). Dataset provenance and licensing must be verified before redistribution. No real customer data is committed to this repository.
+The project uses the IBM Telco Customer Churn sample dataset. Download the source CSV and verify its SHA-256 before saving it locally:
+
+```bash
+python -m src.download_data
+python -m src.eda
+python -m src.train
+# Score a customer CSV with the trained pipeline and saved threshold:
+python -m src.predict --input path/to/customers.csv
+```
+
+See [DATASET.md](DATASET.md) for source, attribution, checksum, license information, and limitations. Raw data and generated artifacts are not committed to the repository.
 
 ## Project structure
 
 - `.github/workflows/ci.yml`: continuous integration
-- `src/`: training, prediction, pipeline, and EDA code
+- `src/`: dataset download, training, prediction, pipeline, and EDA code
 - `tests/`: automated tests
-- `data/`, `models/`, `outputs/`: documentation placeholders; generated and private artifacts are excluded from Git
+- `data/`, `models/`, `outputs/`: local data and generated artifacts; excluded from Git
 
 ## Responsible use
 
@@ -45,4 +57,4 @@ This project is for educational and analytical use. Churn predictions are probab
 
 ## License
 
-No license has been declared. All rights remain with their respective owners unless a license is added.
+No license has been declared for this project's original code and documentation. The IBM dataset is a separate third-party work; see [DATASET.md](DATASET.md) and IBM's source repository license.
