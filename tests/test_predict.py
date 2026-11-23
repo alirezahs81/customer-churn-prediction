@@ -1,3 +1,6 @@
+import json
+
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -31,9 +34,56 @@ def test_predict_rejects_empty_feature_frame(tmp_path):
         predict(path, model_path)
 
 
+def test_predict_rejects_empty_customer_file(tmp_path, monkeypatch):
+    from src import predict as predict_module
+
+    class Model:
+        feature_names_in_ = np.array(["tenure"])
+
+    input_path = tmp_path / "customers.csv"
+    pd.DataFrame({"tenure": pd.Series(dtype="int64")}).to_csv(input_path, index=False)
+    model_path = tmp_path / "model.joblib"
+    model_path.touch()
+    monkeypatch.setattr(predict_module.joblib, "load", lambda path: Model())
+
+    with pytest.raises(ValueError, match="at least one customer row"):
+        predict(input_path, model_path)
+
+
+def test_predict_rejects_missing_required_feature(tmp_path, monkeypatch):
+    from src import predict as predict_module
+
+    class Model:
+        feature_names_in_ = np.array(["tenure", "MonthlyCharges"])
+
+    input_path = tmp_path / "customers.csv"
+    pd.DataFrame({"tenure": [10]}).to_csv(input_path, index=False)
+    model_path = tmp_path / "model.joblib"
+    model_path.touch()
+    monkeypatch.setattr(predict_module.joblib, "load", lambda path: Model())
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        predict(input_path, model_path)
+
+
+def test_predict_rejects_unexpected_feature(tmp_path, monkeypatch):
+    from src import predict as predict_module
+
+    class Model:
+        feature_names_in_ = np.array(["tenure"])
+
+    input_path = tmp_path / "customers.csv"
+    pd.DataFrame({"tenure": [10], "unexpected": [1]}).to_csv(input_path, index=False)
+    model_path = tmp_path / "model.joblib"
+    model_path.touch()
+    monkeypatch.setattr(predict_module.joblib, "load", lambda path: Model())
+
+    with pytest.raises(ValueError, match="unexpected columns"):
+        predict(input_path, model_path)
+
+
 def test_predict_scores_customer_with_trained_pipeline(tmp_path):
     import joblib
-    import numpy as np
     from src.pipeline import build_estimators, build_pipeline
 
     rng = np.random.default_rng(11)
@@ -58,10 +108,6 @@ def test_predict_scores_customer_with_trained_pipeline(tmp_path):
 
 
 def test_predict_uses_saved_threshold_file(tmp_path, monkeypatch):
-    import json
-    import numpy as np
-    from src import predict as predict_module
-
     class FixedProbabilityModel:
         def predict_proba(self, frame):
             return np.array([[0.4, 0.6], [0.2, 0.8]])
@@ -72,7 +118,7 @@ def test_predict_uses_saved_threshold_file(tmp_path, monkeypatch):
     model_path.touch()
     threshold_path = tmp_path / "churn_threshold.json"
     threshold_path.write_text(json.dumps({"threshold": 0.7}), encoding="utf-8")
-    monkeypatch.setattr(predict_module.joblib, "load", lambda path: FixedProbabilityModel())
+    monkeypatch.setattr("src.predict.joblib.load", lambda path: FixedProbabilityModel())
 
     result = predict(input_path, model_path, threshold_path)
 
