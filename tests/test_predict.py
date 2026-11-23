@@ -55,3 +55,25 @@ def test_predict_scores_customer_with_trained_pipeline(tmp_path):
     assert list(result.columns) == ["prediction", "churn_probability"]
     assert len(result) == 3
     assert result["churn_probability"].between(0, 1).all()
+
+
+def test_predict_uses_saved_threshold_file(tmp_path, monkeypatch):
+    import json
+    import numpy as np
+    from src import predict as predict_module
+
+    class FixedProbabilityModel:
+        def predict_proba(self, frame):
+            return np.array([[0.4, 0.6], [0.2, 0.8]])
+
+    input_path = tmp_path / "customers.csv"
+    pd.DataFrame({"tenure": [1, 2]}).to_csv(input_path, index=False)
+    model_path = tmp_path / "churn_pipeline.joblib"
+    model_path.touch()
+    threshold_path = tmp_path / "churn_threshold.json"
+    threshold_path.write_text(json.dumps({"threshold": 0.7}), encoding="utf-8")
+    monkeypatch.setattr(predict_module.joblib, "load", lambda path: FixedProbabilityModel())
+
+    result = predict(input_path, model_path, threshold_path)
+
+    assert result["prediction"].tolist() == [0, 1]
