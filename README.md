@@ -1,60 +1,127 @@
 # Customer Churn Prediction
 
-A reproducible machine-learning project for customer churn classification.
+A reproducible, leakage-aware machine-learning project for customer churn classification using the IBM Telco Customer Churn sample dataset.
 
-## Project status
+## Highlights
 
-- Preprocessing is implemented inside scikit-learn pipelines to prevent data leakage.
-- Data is split into stratified train, validation, and test partitions.
-- Validation F1 is used for model selection, and the decision threshold is tuned on validation predictions only; the test set is held out for final evaluation.
-- The evaluation report compares the selected validation threshold with the default 0.5 threshold on the untouched test set.
-- Training saves the selected threshold beside the model, and inference applies it automatically (legacy model files without a threshold use 0.5).
-- Baseline models: Logistic Regression, Random Forest, and Gradient Boosting.
-- Automated tests use synthetic data and do not require private customer records.
+- Reproducible dataset download with SHA-256 verification.
+- Stratified train/validation/test split (60/20/20).
+- Preprocessing is fitted inside scikit-learn pipelines to prevent preprocessing leakage.
+- Model and decision-threshold selection use validation data only; the test set is held out for final evaluation.
+- The selected threshold is persisted and reused by the prediction CLI.
+- Automated tests use synthetic data and do not require the downloaded dataset.
+- GitHub Actions runs lint and tests on Python 3.10, 3.11, and 3.12.
+
+## Results
+
+The following snapshot was produced by a local training run on the documented IBM dataset. Results may vary if dependencies, data, or training code change.
+
+| Test metric | Validation-selected threshold (0.6098) | Default threshold (0.5) |
+|---|---:|---:|
+| Accuracy | 0.7651 | 0.7381 |
+| Precision | 0.5447 | 0.5043 |
+| Recall | 0.7005 | 0.7834 |
+| F1 | 0.6129 | 0.6136 |
+| ROC-AUC | 0.8413 | 0.8413 |
+
+The selected threshold trades some recall for higher precision and accuracy in this run; it does **not** improve F1. ROC-AUC is unchanged because it does not depend on a single classification threshold. Choose an operating threshold according to the relative cost of false positives and false negatives rather than treating one threshold as universally best.
+
+## Requirements
+
+- Python 3.10, 3.11, or 3.12
+- pip
+- Internet access for the initial dataset download
 
 ## Setup
 
-```bash
-python -m venv .venv
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-# macOS/Linux:
-# source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
+### Windows PowerShell
+
+From the repository directory:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-## Run tests
+If PowerShell blocks virtual-environment activation, use the environment's Python directly:
 
-```bash
-python -m pytest -q
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-## Download data and train
+### macOS / Linux
 
-The project uses the IBM Telco Customer Churn sample dataset. Download the source CSV and verify its SHA-256 before saving it locally:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-dev.txt
+```
+
+## Download data, explore, and train
+
+Run from the repository root:
 
 ```bash
 python -m src.download_data
 python -m src.eda
 python -m src.train
-# Score a customer CSV with the trained pipeline and saved threshold:
+```
+
+The downloader saves the verified CSV to `data/telco_customer_churn.csv`. See [DATASET.md](DATASET.md) for source, attribution, checksum, license, and dataset limitations. Raw data and generated artifacts are intentionally excluded from Git.
+
+Training writes:
+
+- `models/churn_pipeline.joblib`: fitted preprocessing and classifier pipeline
+- `models/churn_threshold.json`: validation-selected classification threshold
+- `outputs/evaluation_report.json`: validation and held-out test metrics
+
+## Run predictions
+
+After training, provide a CSV containing the same feature columns used during training. Do not include the target column `Churn`.
+
+```bash
 python -m src.predict --input path/to/customers.csv
 ```
 
-See [DATASET.md](DATASET.md) for source, attribution, checksum, license information, and limitations. Raw data and generated artifacts are not committed to the repository.
+Optional arguments:
+
+- `--model`: path to a trusted trained model artifact
+- `--threshold-file`: optional threshold JSON; by default, the CLI looks for `churn_threshold.json` beside the model
+- `--output`: prediction CSV path (default: `outputs/predictions.csv`)
+
+The prediction command checks required and unexpected feature columns against the trained model before scoring. It also rejects empty inputs and labeled input containing the target column.
+
+**Security:** Joblib uses pickle serialization. Only load model artifacts from a trusted source; a malicious artifact can execute code during loading.
+
+## Run tests and lint
+
+```bash
+python -m pytest -q
+ruff check .
+```
+
+The CI workflow runs these checks on Python 3.10, 3.11, and 3.12.
 
 ## Project structure
 
 - `.github/workflows/ci.yml`: continuous integration
-- `src/`: dataset download, training, prediction, pipeline, and EDA code
+- `src/download_data.py`: verified dataset download
+- `src/eda.py`: exploratory analysis
+- `src/pipeline.py`: preprocessing and model definitions
+- `src/train.py`: data splitting, model selection, threshold selection, and evaluation
+- `src/predict.py`: validated inference CLI
 - `tests/`: automated tests
-- `data/`, `models/`, `outputs/`: local data and generated artifacts; excluded from Git
+- `data/`, `models/`, `outputs/`: local data and generated artifacts (ignored by Git)
 
-## Responsible use
+## Methodology and limitations
 
-This project is for educational and analytical use. Churn predictions are probabilistic estimates, not definitive judgments about individual customers. Review [SECURITY.md](SECURITY.md) before using real customer data.
+The data is split using stratification and a fixed random seed. Model selection and threshold selection are performed on validation predictions. The final model is refitted on the combined training and validation partitions, then evaluated on the untouched test partition.
+
+The source dataset is a cross-sectional sample, not a time-indexed customer history. This experiment therefore does not establish temporal forecasting performance, causal effects of retention actions, fairness across customer groups, or production readiness. Review [DATASET.md](DATASET.md) and [SECURITY.md](SECURITY.md) before using real customer data.
 
 ## License
 
-No license has been declared for this project's original code and documentation. The IBM dataset is a separate third-party work; see [DATASET.md](DATASET.md) and IBM's source repository license.
+The original code and documentation in this repository are released under the MIT License; see [LICENSE](LICENSE). The third-party IBM dataset is separately governed by the license and notices described in [DATASET.md](DATASET.md).
