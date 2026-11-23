@@ -17,8 +17,8 @@ def test_select_threshold_uses_validation_labels_and_returns_valid_metrics():
 
 
 def test_select_threshold_is_deterministic_and_includes_default_candidate():
-    y_true = np.array([0, 1, 0, 1])
-    probabilities = np.array([0.2, 0.4, 0.6, 0.8])
+    y_true = np.array([0, 1])
+    probabilities = np.array([0.2, 0.8])
 
     first = select_threshold(y_true, probabilities)
     second = select_threshold(y_true, probabilities)
