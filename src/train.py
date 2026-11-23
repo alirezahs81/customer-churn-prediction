@@ -136,6 +136,11 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
             "selected_threshold": selected_threshold,
         },
         "best_model": best_name,
+        # Backward-compatible keys retained for existing tests and consumers.
+        # validation_metrics uses threshold 0.5; test_metrics uses the selected
+        # validation threshold for the final, one-time test evaluation.
+        "validation_metrics": validation_results,
+        "test_metrics": test_metrics,
         "validation_metrics_at_default_threshold": validation_results,
         "validation_metrics_at_selected_threshold": tuned_validation_metrics,
         "test_metrics_at_selected_threshold": test_metrics,
