@@ -42,16 +42,17 @@ def select_threshold(y_true, y_probability) -> tuple[float, dict[str, float]]:
     scored = []
     for threshold in candidates:
         prediction = (np.asarray(y_probability) >= threshold).astype(int)
-        metrics = classification_metrics(y_true, prediction, y_probability)
-        scored.append((threshold, metrics))
+        score = f1_score(y_true, prediction, zero_division=0)
+        scored.append((float(threshold), float(score)))
 
-    best_f1 = max(metrics["f1"] for _, metrics in scored)
+    best_f1 = max(score for _, score in scored)
     # Deterministic tie-break: prefer a threshold closest to the conventional 0.5.
-    best_threshold, best_metrics = min(
-        (item for item in scored if np.isclose(item[1]["f1"], best_f1)),
-        key=lambda item: abs(float(item[0]) - DEFAULT_THRESHOLD),
+    best_threshold = min(
+        (threshold for threshold, score in scored if np.isclose(score, best_f1)),
+        key=lambda threshold: abs(threshold - DEFAULT_THRESHOLD),
     )
-    return float(best_threshold), best_metrics
+    best_prediction = (np.asarray(y_probability) >= best_threshold).astype(int)
+    return best_threshold, classification_metrics(y_true, best_prediction, y_probability)
 
 
 def stratified_train_valid_test_split(X, y, random_state: int = 42):
