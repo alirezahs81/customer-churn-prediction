@@ -37,7 +37,7 @@ def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
 
 def select_threshold(y_true, y_probability) -> tuple[float, dict[str, float]]:
     """Choose the F1-maximizing threshold using validation predictions only."""
-    precision, recall, thresholds = precision_recall_curve(y_true, y_probability)
+    _, _, thresholds = precision_recall_curve(y_true, y_probability)
     candidates = np.unique(np.append(thresholds, DEFAULT_THRESHOLD))
     scored = []
     for threshold in candidates:
@@ -124,6 +124,18 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
     model_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(best_model, model_dir / "churn_pipeline.joblib")
+    threshold_path = model_dir / "churn_threshold.json"
+    threshold_path.write_text(
+        json.dumps(
+            {
+                "threshold": selected_threshold,
+                "default_threshold": DEFAULT_THRESHOLD,
+                "selection": "validation F1",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     report = {
         "protocol": {
