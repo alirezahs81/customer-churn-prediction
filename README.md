@@ -6,7 +6,8 @@ A reproducible machine-learning project for customer churn classification.
 
 - Preprocessing is implemented inside scikit-learn pipelines to prevent data leakage.
 - Data is split into stratified train, validation, and test partitions.
-- Validation F1 is used for model selection; the test set is held out for final evaluation.
+- Validation F1 is used for model selection, and the decision threshold is tuned on validation predictions only; the test set is held out for final evaluation.
+- The evaluation report compares the selected validation threshold with the default 0.5 threshold on the untouched test set.
 - Baseline models: Logistic Regression, Random Forest, and Gradient Boosting.
 - Automated tests use synthetic data and do not require private customer records.
 
