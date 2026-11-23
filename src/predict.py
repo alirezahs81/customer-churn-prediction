@@ -27,6 +27,31 @@ def load_threshold(threshold_path: Path | None, model_path: Path) -> float:
     return threshold
 
 
+def validate_prediction_schema(customers: pd.DataFrame, model) -> None:
+    """Reject ambiguous or incompatible inference data before calling the estimator."""
+    if customers.columns.has_duplicates:
+        duplicates = customers.columns[customers.columns.duplicated()].tolist()
+        raise ValueError(f"Prediction input contains duplicate columns: {duplicates}.")
+    if customers.empty:
+        raise ValueError("Prediction input must contain at least one customer row.")
+
+    expected = getattr(model, "feature_names_in_", None)
+    if expected is None:
+        return
+
+    expected_columns = set(expected)
+    actual_columns = set(customers.columns)
+    missing = sorted(expected_columns - actual_columns)
+    unexpected = sorted(actual_columns - expected_columns)
+    if missing or unexpected:
+        details = []
+        if missing:
+            details.append(f"missing required columns: {missing}")
+        if unexpected:
+            details.append(f"unexpected columns: {unexpected}")
+        raise ValueError("Prediction input schema mismatch; " + "; ".join(details) + ".")
+
+
 def predict(
     input_csv: Path,
     model_path: Path,
@@ -47,6 +72,7 @@ def predict(
 
     # joblib uses pickle serialization: only load artifacts from a trusted training run.
     model = joblib.load(model_path)
+    validate_prediction_schema(customers, model)
     probability = model.predict_proba(customers)[:, 1]
     threshold = load_threshold(threshold_path, model_path)
     prediction = (probability >= threshold).astype(int)
