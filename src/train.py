@@ -1,4 +1,4 @@
-"""Train, select on validation data, and evaluate once on an untouched test set."""
+"""Train, select on validation data, and evaluate on a held-out test partition."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,6 @@ import pandas as pd
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
-    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -23,6 +22,7 @@ from src.pipeline import TARGET, build_estimators, build_pipeline, load_dataset
 ROOT = Path(__file__).resolve().parents[1]
 MIN_CLASS_COUNT_FOR_SPLIT = 5
 DEFAULT_THRESHOLD = 0.5
+MINIMUM_RECALL = 0.65
 
 
 def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
@@ -35,24 +35,53 @@ def classification_metrics(y_true, y_pred, y_probability) -> dict[str, float]:
     }
 
 
-def select_threshold(y_true, y_probability) -> tuple[float, dict[str, float]]:
-    """Choose the F1-maximizing threshold using validation predictions only."""
-    _, _, thresholds = precision_recall_curve(y_true, y_probability)
-    candidates = np.unique(np.append(thresholds, DEFAULT_THRESHOLD))
-    scored = []
-    for threshold in candidates:
-        prediction = (np.asarray(y_probability) >= threshold).astype(int)
-        score = f1_score(y_true, prediction, zero_division=0)
-        scored.append((float(threshold), float(score)))
+def select_threshold(
+    y_true,
+    y_probability,
+    min_recall: float = MINIMUM_RECALL,
+) -> tuple[float, dict[str, float]]:
+    """Maximize validation precision while meeting the minimum Recall constraint."""
+    if not 0.0 <= min_recall <= 1.0:
+        raise ValueError("min_recall must be between 0.0 and 1.0.")
 
-    best_f1 = max(score for _, score in scored)
-    # Deterministic tie-break: prefer a threshold closest to the conventional 0.5.
-    best_threshold = min(
-        (threshold for threshold, score in scored if np.isclose(score, best_f1)),
-        key=lambda threshold: abs(threshold - DEFAULT_THRESHOLD),
+    probabilities = np.asarray(y_probability, dtype=float)
+    labels = np.asarray(y_true, dtype=int)
+    if probabilities.ndim != 1 or labels.ndim != 1 or len(labels) != len(probabilities):
+        raise ValueError("y_true and y_probability must be one-dimensional arrays of equal length.")
+    if len(labels) == 0:
+        raise ValueError("At least one validation sample is required.")
+    if not np.isfinite(probabilities).all():
+        raise ValueError("Predicted probabilities must all be finite.")
+    if not np.isin(labels, [0, 1]).all():
+        raise ValueError("y_true must contain only binary labels 0 and 1.")
+
+    # Match the fine-grained validation search: evaluate unique probabilities
+    # rounded to eight decimal places, plus the conventional default threshold.
+    candidates = np.unique(np.append(np.round(probabilities, 8), DEFAULT_THRESHOLD))
+    eligible = []
+    for threshold in candidates:
+        prediction = (probabilities >= threshold).astype(int)
+        metrics = classification_metrics(labels, prediction, probabilities)
+        if metrics["recall"] >= min_recall:
+            eligible.append((metrics, float(threshold)))
+
+    if not eligible:
+        raise ValueError(
+            f"No threshold satisfies the minimum Recall requirement of {min_recall:.2f}."
+        )
+
+    # Maximize precision; deterministic tie-breaks prefer higher Recall,
+    # then higher F1, then the higher threshold.
+    best_metrics, best_threshold = max(
+        eligible,
+        key=lambda item: (
+            item[0]["precision"],
+            item[0]["recall"],
+            item[0]["f1"],
+            item[1],
+        ),
     )
-    best_prediction = (np.asarray(y_probability) >= best_threshold).astype(int)
-    return best_threshold, classification_metrics(y_true, best_prediction, y_probability)
+    return best_threshold, best_metrics
 
 
 def stratified_train_valid_test_split(X, y, random_state: int = 42):
@@ -106,7 +135,8 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
         y_valid, validation_probabilities[best_name]
     )
 
-    # Refit only after model and threshold selection. The test set remains untouched.
+    # Refit only after model and threshold selection. The test partition is not
+    # used for model or threshold selection.
     final_X = pd.concat([X_train, X_valid], axis=0)
     final_y = pd.concat([y_train, y_valid], axis=0)
     best_model = build_pipeline(final_X, build_estimators()[best_name])
@@ -130,7 +160,8 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
             {
                 "threshold": selected_threshold,
                 "default_threshold": DEFAULT_THRESHOLD,
-                "selection": "validation F1",
+                "minimum_recall": MINIMUM_RECALL,
+                "selection": "maximum validation precision subject to minimum validation Recall",
             },
             indent=2,
         ),
@@ -141,16 +172,19 @@ def train(dataset_path: Path, output_dir: Path = ROOT) -> dict:
         "protocol": {
             "split": "stratified 60/20/20 train/validation/test",
             "random_state": 42,
-            "selection_metric": "validation F1",
-            "threshold_selection": "F1-maximizing threshold selected on validation predictions",
-            "test_usage": "used once for final evaluation after model and threshold selection",
+            "selection_metric": "validation F1 at threshold 0.5",
+            "threshold_selection": (
+                "maximum validation precision subject to validation Recall "
+                f">= {MINIMUM_RECALL:.2f}"
+            ),
+            "minimum_recall": MINIMUM_RECALL,
+            "test_usage": "excluded from model and threshold selection; used for final evaluation",
             "default_threshold": DEFAULT_THRESHOLD,
             "selected_threshold": selected_threshold,
         },
         "best_model": best_name,
-        # Backward-compatible keys retained for existing tests and consumers.
         # validation_metrics uses threshold 0.5; test_metrics uses the selected
-        # validation threshold for the final, one-time test evaluation.
+        # validation threshold for the final evaluation.
         "validation_metrics": validation_results,
         "test_metrics": test_metrics,
         "validation_metrics_at_default_threshold": validation_results,

@@ -1,7 +1,7 @@
 """Tests for validation-only classification threshold selection."""
 import numpy as np
 
-from src.train import DEFAULT_THRESHOLD, select_threshold
+from src.train import select_threshold
 
 
 def test_select_threshold_uses_validation_labels_and_returns_valid_metrics():
@@ -16,7 +16,7 @@ def test_select_threshold_uses_validation_labels_and_returns_valid_metrics():
     assert metrics["roc_auc"] > 0.5
 
 
-def test_select_threshold_is_deterministic_and_includes_default_candidate():
+def test_select_threshold_is_deterministic_and_prefers_higher_threshold_on_ties():
     y_true = np.array([0, 1])
     probabilities = np.array([0.2, 0.8])
 
@@ -24,4 +24,8 @@ def test_select_threshold_is_deterministic_and_includes_default_candidate():
     second = select_threshold(y_true, probabilities)
 
     assert first == second
-    assert first[0] == DEFAULT_THRESHOLD
+    # Both 0.5 and 0.8 classify this tiny sample perfectly. The selector's
+    # deterministic tie-break prefers the higher Recall, then higher threshold.
+    assert first[0] == 0.8
+    assert first[1]["precision"] == 1.0
+    assert first[1]["recall"] == 1.0

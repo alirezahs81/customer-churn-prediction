@@ -1,10 +1,17 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.model_selection import train_test_split
 
 from src.pipeline import TARGET, build_estimators, build_pipeline, load_dataset
-from src.train import stratified_train_valid_test_split, train
+from src.train import (
+    MINIMUM_RECALL,
+    select_threshold,
+    stratified_train_valid_test_split,
+    train,
+)
 
 
 def make_dataset(n=160):
@@ -46,20 +53,42 @@ def test_preprocessing_is_inside_pipeline_and_handles_unseen_categories():
     assert model.predict_proba(unseen).shape == (1, 2)
 
 
+def test_select_threshold_maximizes_precision_with_recall_constraint():
+    y_true = np.array([1, 1, 1, 1, 0, 0, 0, 0])
+    probabilities = np.array([0.95, 0.85, 0.75, 0.25, 0.90, 0.70, 0.30, 0.10])
+
+    threshold, metrics = select_threshold(y_true, probabilities, min_recall=0.65)
+
+    assert threshold == pytest.approx(0.75)
+    assert metrics["precision"] == pytest.approx(0.75)
+    assert metrics["recall"] == pytest.approx(0.75)
+
+
+def test_select_threshold_rejects_invalid_minimum_recall():
+    y_true = np.array([0, 1, 0, 1])
+    probabilities = np.array([0.1, 0.9, 0.2, 0.8])
+
+    with pytest.raises(ValueError, match="between 0.0 and 1.0"):
+        select_threshold(y_true, probabilities, min_recall=1.1)
+
+
 def test_training_writes_report_and_pipeline_artifact(tmp_path):
     path = tmp_path / "telco.csv"
     make_dataset(240).to_csv(path, index=False)
     report = train(path, tmp_path)
     assert report["protocol"]["split"].startswith("stratified 60/20/20")
-    assert report["protocol"]["test_usage"].startswith("used once")
+    assert "excluded from model and threshold selection" in report["protocol"]["test_usage"]
+    assert report["protocol"]["minimum_recall"] == MINIMUM_RECALL
+    assert report["validation_metrics_at_selected_threshold"]["recall"] >= MINIMUM_RECALL
     assert set(report["validation_metrics"]) == set(build_estimators())
     assert set(report["test_metrics"]) == {"accuracy", "precision", "recall", "f1", "roc_auc"}
     assert (tmp_path / "models" / "churn_pipeline.joblib").is_file()
     threshold_path = tmp_path / "models" / "churn_threshold.json"
     assert threshold_path.is_file()
-    import json
     saved_threshold = json.loads(threshold_path.read_text(encoding="utf-8"))
     assert saved_threshold["threshold"] == report["protocol"]["selected_threshold"]
+    assert saved_threshold["minimum_recall"] == MINIMUM_RECALL
+    assert "maximum validation precision" in saved_threshold["selection"]
     assert (tmp_path / "outputs" / "evaluation_report.json").is_file()
 
 
