@@ -41,7 +41,7 @@ See [FINAL_EVALUATION.md](FINAL_EVALUATION.md) for the detailed metrics, operati
 
 > **Evaluation transparency:** the test partition was previously evaluated at an earlier validation-selected threshold (0.6098) and was subsequently re-evaluated at 0.63371099. The threshold choice itself was based on validation data, not test results, but the test partition was therefore not inspected only once. Treat these test metrics as a reported holdout snapshot rather than a pristine, never-before-inspected estimate. Do not use this test partition for further threshold or model tuning.
 
-> **Implementation note:** the current `src.train` implementation still selects an F1-maximizing threshold on validation data. It does not yet enforce the project's separately agreed minimum Recall constraint of 0.65. Consequently, a fresh `python -m src.train` run may write a different threshold to `models/churn_threshold.json`; the approved threshold above is the one used for this documented final evaluation. Aligning the training and inference implementation with the Recall-constrained threshold policy is a follow-up code change.
+> **Threshold policy:** `src.train` now selects the operating threshold on validation predictions by maximizing Precision subject to validation Recall being at least 0.65. The selected threshold and policy metadata are saved in `models/churn_threshold.json` and reused by the prediction CLI. Model selection remains based on validation F1 at threshold 0.50. The reported test metrics above are the previously recorded evaluation snapshot; do not use the test partition to tune or select future models or thresholds.
 
 ## Requirements
 
