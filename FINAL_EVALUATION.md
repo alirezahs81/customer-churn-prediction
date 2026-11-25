@@ -85,11 +85,13 @@ The test partition was previously evaluated at an earlier validation-selected th
 
 For that reason, these numbers should be presented as the project's reported holdout evaluation snapshot, not as a pristine, never-before-inspected estimate. Do not use this test partition for further model selection or threshold tuning. A future independent evaluation should use a newly collected or separately reserved dataset.
 
-## Implementation follow-up
+## Implemented threshold policy
 
-The current `src/train.py` still implements F1-maximizing threshold selection on validation data. It does not yet enforce the agreed constraint `Recall >= 0.65` with Precision maximization. Therefore, a new run of `python -m src.train` may select and persist a different threshold from 0.63371099.
+The training implementation now enforces the agreed validation constraint `Recall >= 0.65`. It searches candidate thresholds using validation predictions only and selects the threshold with the highest Precision among eligible candidates. Ties are resolved deterministically by preferring higher Recall, then higher F1, then the higher threshold. If no candidate meets the minimum Recall, training stops with a clear error rather than silently violating the business requirement.
 
-Before treating this threshold as the default for the prediction CLI, update the training implementation and its tests so that the Recall-constrained threshold policy is reproducible and the generated `models/churn_threshold.json` contains the approved policy's result. That code change is intentionally separate from this documentation update.
+Model selection remains separate: Logistic Regression, Random Forest, and Gradient Boosting are compared using validation F1 at the default threshold of 0.50. After the model and threshold are selected, the final pipeline is refitted on train plus validation data. The chosen threshold, minimum Recall, and selection rule are persisted in `models/churn_threshold.json`; the prediction CLI reads that threshold for inference.
+
+The test partition is excluded from model and threshold selection. Training reports test metrics after the threshold is locked, but those metrics must not be used to tune the threshold or choose a model. Because this project has already inspected the test partition more than once (as disclosed above), the reported test metrics remain a historical evaluation snapshot rather than a pristine one-time estimate.
 
 ## Reproducibility notes
 
