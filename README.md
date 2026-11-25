@@ -7,24 +7,41 @@ A reproducible, leakage-aware machine-learning project for customer churn classi
 - Reproducible dataset download with SHA-256 verification.
 - Stratified train/validation/test split (60/20/20).
 - Preprocessing is fitted inside scikit-learn pipelines to prevent preprocessing leakage.
-- Model and decision-threshold selection use validation data only; the test set is held out for final evaluation.
-- The selected threshold is persisted and reused by the prediction CLI.
+- Model selection and operating-threshold selection are based on validation data, not test metrics.
+- The final model is refitted on the combined training and validation partitions before test evaluation.
 - Automated tests use synthetic data and do not require the downloaded dataset.
 - GitHub Actions runs lint and tests on Python 3.10, 3.11, and 3.12.
 
-## Results
+## Final evaluation snapshot
 
-The following snapshot was produced by a local training run on the documented IBM dataset. Results may vary if dependencies, data, or training code change.
+The following result is the approved evaluation snapshot for the IBM Telco Customer Churn dataset (7,043 rows), using Logistic Regression and the validation-selected operating threshold **0.63371099**.
 
-| Test metric | Validation-selected threshold (0.6098) | Default threshold (0.5) |
+| Test metric | Final value |
+|---|---:|
+| Accuracy | 0.7729 |
+| Precision | 0.5592 |
+| Recall | 0.6818 |
+| F1 | 0.6145 |
+| ROC-AUC | 0.8413 |
+
+The minimum business Recall requirement was set to **0.65**. The validation result at the approved threshold was Precision 0.5920, Recall 0.6711, and F1 0.6291. On the reported test evaluation, Recall was 0.6818, exceeding the minimum requirement.
+
+### Test confusion matrix
+
+Rows are actual classes and columns are predicted classes; class 1 is Churn.
+
+|  | Predicted: No Churn | Predicted: Churn |
 |---|---:|---:|
-| Accuracy | 0.7651 | 0.7381 |
-| Precision | 0.5447 | 0.5043 |
-| Recall | 0.7005 | 0.7834 |
-| F1 | 0.6129 | 0.6136 |
-| ROC-AUC | 0.8413 | 0.8413 |
+| Actual: No Churn | 834 (TN) | 201 (FP) |
+| Actual: Churn | 119 (FN) | 255 (TP) |
 
-The selected threshold trades some recall for higher precision and accuracy in this run; it does **not** improve F1. ROC-AUC is unchanged because it does not depend on a single classification threshold. Choose an operating threshold according to the relative cost of false positives and false negatives rather than treating one threshold as universally best.
+At this threshold, 255 of 374 customers who churned were identified, while 201 non-churning customers received a false churn alert. Precision of 0.5592 means approximately 56% of positive churn alerts were correct.
+
+See [FINAL_EVALUATION.md](FINAL_EVALUATION.md) for the detailed metrics, operating-threshold rationale, and evaluation caveats.
+
+> **Evaluation transparency:** the test partition was previously evaluated at an earlier validation-selected threshold (0.6098) and was subsequently re-evaluated at 0.63371099. The threshold choice itself was based on validation data, not test results, but the test partition was therefore not inspected only once. Treat these test metrics as a reported holdout snapshot rather than a pristine, never-before-inspected estimate. Do not use this test partition for further threshold or model tuning.
+
+> **Threshold policy:** `src.train` now selects the operating threshold on validation predictions by maximizing Precision subject to validation Recall being at least 0.65. The selected threshold and policy metadata are saved in `models/churn_threshold.json` and reused by the prediction CLI. Model selection remains based on validation F1 at threshold 0.50. The reported test metrics above are the previously recorded evaluation snapshot; do not use the test partition to tune or select future models or thresholds.
 
 ## Requirements
 
@@ -118,7 +135,7 @@ The CI workflow runs these checks on Python 3.10, 3.11, and 3.12.
 
 ## Methodology and limitations
 
-The data is split using stratification and a fixed random seed. Model selection and threshold selection are performed on validation predictions. The final model is refitted on the combined training and validation partitions, then evaluated on the untouched test partition.
+The data is split using stratification and a fixed random seed. Model selection and threshold selection are performed on validation predictions. The final model is refitted on the combined training and validation partitions, then evaluated on the test partition. See the evaluation transparency note above for the actual history of test-partition inspection in this project run.
 
 The source dataset is a cross-sectional sample, not a time-indexed customer history. This experiment therefore does not establish temporal forecasting performance, causal effects of retention actions, fairness across customer groups, or production readiness. Review [DATASET.md](DATASET.md) and [SECURITY.md](SECURITY.md) before using real customer data.
 
